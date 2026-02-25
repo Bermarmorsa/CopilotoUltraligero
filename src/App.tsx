@@ -67,11 +67,20 @@ function readSlope(slope: string): string {
   }).filter(Boolean).join(' ');
 }
 
+function normalizeUnitsForSpeech(text: string): string {
+  if (!text) return '';
+  return text
+    .replace(/\bm\b/gi, ' metros')
+    .replace(/\bft\b/gi, ' pies')
+    .trim();
+}
+
 function readRunways(runways: Runway[]): string {
   return runways.map(r => {
     const numSpelled = r.number.split('').map(digit => PHONETIC_ALPHABET[digit] || digit).join(' ');
     let details = `pista ${numSpelled} circuito a ${r.circuit.toLowerCase()}`;
-    if (r.length) details += `, longitud ${r.length}`;
+    if (r.length) details += `, longitud ${normalizeUnitsForSpeech(r.length)}`;
+    if (r.width) details += `, ancho ${normalizeUnitsForSpeech(r.width)}`;
     if (r.material) details += `, superficie de ${r.material}`;
     if (r.slope) details += `, inclinación ${readSlope(r.slope)}`;
     return details;
@@ -101,6 +110,7 @@ export default function App() {
         runways: (a.runways || []).map((r: any) => ({
           ...r,
           length: r.length || '',
+          width: r.width || '',
           slope: r.slope || '',
           material: r.material || ''
         }))
@@ -305,7 +315,7 @@ export default function App() {
       const codeSpelled = spellAeronautical(aero.code);
       const runwaysSpelled = readRunways(aero.runways);
       const freqsSpelled = (aero.frequencies || []).map(f => readFrequency(f)).join(' y ');
-      const response = `Aeródromo ${aero.name}, código ${codeSpelled}. Elevación ${aero.elevation || 'no especificada'}. ${runwaysSpelled}. Frecuencias ${freqsSpelled}. ${aero.observations}`;
+      const response = `Aeródromo ${aero.name}, código ${codeSpelled}. Elevación ${normalizeUnitsForSpeech(aero.elevation) || 'no especificada'}. ${runwaysSpelled}. Frecuencias ${freqsSpelled}. ${aero.observations}`;
       speak(response);
       addLog(response, 'system');
       return;
@@ -718,7 +728,7 @@ export default function App() {
                       <Radio className="w-4 h-4" />
                       <h2 className="text-xs font-bold uppercase tracking-widest">Aeródromos</h2>
                     </div>
-                    <button onClick={() => { setEditingAerodrome({ id: '', code: '', name: '', elevation: '', runways: [{ id: Date.now().toString(), number: '', circuit: '', length: '', slope: '', material: '' }], frequencies: [], observations: '' }); setIsAddingAerodrome(true); }} className="p-1 hover:bg-white/10 rounded text-amber-400"><Plus className="w-4 h-4" /></button>
+                    <button onClick={() => { setEditingAerodrome({ id: '', code: '', name: '', elevation: '', runways: [{ id: Date.now().toString(), number: '', circuit: '', length: '', width: '', slope: '', material: '' }], frequencies: [], observations: '' }); setIsAddingAerodrome(true); }} className="p-1 hover:bg-white/10 rounded text-amber-400"><Plus className="w-4 h-4" /></button>
                   </div>
                   <div className="p-4 space-y-2 flex-1">
                     {aerodromes.map(aero => (
@@ -857,7 +867,7 @@ export default function App() {
               <div className="grid grid-cols-3 gap-4">
                 <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Código</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1 text-sm" value={editingAerodrome.code} onChange={e => setEditingAerodrome({...editingAerodrome, code: e.target.value})} /></div>
                 <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Nombre</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1 text-sm" value={editingAerodrome.name} onChange={e => setEditingAerodrome({...editingAerodrome, name: e.target.value})} /></div>
-                <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Elevación</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1 text-sm" placeholder="Ej: 2000 ft" value={editingAerodrome.elevation} onChange={e => setEditingAerodrome({...editingAerodrome, elevation: e.target.value})} /></div>
+                <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Elevación ft</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1 text-sm" placeholder="Ej: 2000 ft" value={editingAerodrome.elevation} onChange={e => setEditingAerodrome({...editingAerodrome, elevation: e.target.value})} /></div>
               </div>
 
               <div className="space-y-2">
@@ -923,7 +933,7 @@ export default function App() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-3 gap-2">
+                    <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[8px] text-white/20 uppercase">Longitud</label>
                         <input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-[10px]" placeholder="Ej: 900m" value={runway.length} onChange={e => {
@@ -932,6 +942,17 @@ export default function App() {
                           setEditingAerodrome({...editingAerodrome, runways: newRunways});
                         }} />
                       </div>
+                      <div>
+                        <label className="text-[8px] text-white/20 uppercase">Ancho</label>
+                        <input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-[10px]" placeholder="Ej: 30m" value={runway.width} onChange={e => {
+                          const newRunways = [...editingAerodrome.runways];
+                          newRunways[idx].width = e.target.value;
+                          setEditingAerodrome({...editingAerodrome, runways: newRunways});
+                        }} />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
                       <div>
                         <label className="text-[8px] text-white/20 uppercase">Superficie</label>
                         <input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-[10px]" placeholder="Asfalto/Tierra" value={runway.material} onChange={e => {
@@ -951,7 +972,7 @@ export default function App() {
                     </div>
                   </div>
                 ))}
-                <button onClick={() => setEditingAerodrome({ ...editingAerodrome, runways: [...editingAerodrome.runways, { id: Date.now().toString(), number: '', circuit: '', length: '', slope: '', material: '' }] })} className="w-full py-2 border border-dashed border-white/20 rounded-lg text-[10px] text-white/40 hover:text-white hover:border-white/40 transition-all">+ Añadir Pista</button>
+                <button onClick={() => setEditingAerodrome({ ...editingAerodrome, runways: [...editingAerodrome.runways, { id: Date.now().toString(), number: '', circuit: '', length: '', width: '', slope: '', material: '' }] })} className="w-full py-2 border border-dashed border-white/20 rounded-lg text-[10px] text-white/40 hover:text-white hover:border-white/40 transition-all">+ Añadir Pista</button>
               </div>
 
               <div><label className="text-[10px] text-white/40 uppercase">Observaciones</label><textarea className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingAerodrome.observations} onChange={e => setEditingAerodrome({...editingAerodrome, observations: e.target.value})} /></div>

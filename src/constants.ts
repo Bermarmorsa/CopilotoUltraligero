@@ -30,6 +30,7 @@ export interface Runway {
   number: string;
   circuit: string;
   length?: string;
+  width?: string;
   slope?: string;
   material?: string;
 }
@@ -135,8 +136,8 @@ export const INITIAL_AERODROMES: Aerodrome[] = [
     name: 'Casarrubios',
     elevation: '2000 ft',
     runways: [
-      { id: 'r1', number: '08', circuit: 'Izquierda', length: '950m', material: 'Asfalto' },
-      { id: 'r2', number: '26', circuit: 'Derecha', length: '950m', material: 'Asfalto' }
+      { id: 'r1', number: '08', circuit: 'Izquierda', length: '950m', width: '25m', material: 'Asfalto' },
+      { id: 'r2', number: '26', circuit: 'Derecha', length: '950m', width: '25m', material: 'Asfalto' }
     ],
     frequencies: ['123.500'],
     observations: 'Frecuencia auto-información.',
@@ -147,8 +148,8 @@ export const INITIAL_AERODROMES: Aerodrome[] = [
     name: 'Cuatro Vientos',
     elevation: '2267 ft',
     runways: [
-      { id: 'r3', number: '09', circuit: 'Izquierda', length: '1200m', material: 'Asfalto' },
-      { id: 'r4', number: '27', circuit: 'Derecha', length: '1200m', material: 'Asfalto' }
+      { id: 'r3', number: '09', circuit: 'Izquierda', length: '1200m', width: '30m', material: 'Asfalto' },
+      { id: 'r4', number: '27', circuit: 'Derecha', length: '1200m', width: '30m', material: 'Asfalto' }
     ],
     frequencies: ['118.700', '121.700'],
     observations: 'Control torre obligatorio.',
