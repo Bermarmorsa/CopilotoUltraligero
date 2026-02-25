@@ -18,6 +18,7 @@ import {
   Info,
   History,
   Volume2,
+  Headphones,
   Edit3,
   Plus,
   Trash2,
@@ -149,6 +150,7 @@ export default function App() {
   const [checklistIndex, setChecklistIndex] = useState(-1);
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [isRecognitionEnabled, setIsRecognitionEnabled] = useState(true);
+  const [listeningMode, setListeningMode] = useState<'headphones' | 'speaker'>('speaker');
   const [micError, setMicError] = useState<string | null>(null);
 
   // --- Editing State ---
@@ -163,6 +165,7 @@ export default function App() {
   const [showHelp, setShowHelp] = useState(false);
 
   const recognitionRef = useRef<any>(null);
+  const startRecognitionRef = useRef<any>(null);
   const synthesisRef = useRef<SpeechSynthesis | null>(window.speechSynthesis);
   const lastSpokenRef = useRef<string>("");
   const logsEndRef = useRef<HTMLDivElement>(null);
@@ -170,10 +173,10 @@ export default function App() {
   const activeRoute = routes.find(r => r.id === activeRouteId) || routes[0];
 
   // --- Refs for state access in callbacks ---
-  const stateRef = useRef({ appState, activeChecklist, checklistIndex, checklists, routes, activeRouteId, aerodromes });
+  const stateRef = useRef({ appState, activeChecklist, checklistIndex, checklists, routes, activeRouteId, aerodromes, listeningMode, isSpeaking, isRecognitionEnabled });
   useEffect(() => {
-    stateRef.current = { appState, activeChecklist, checklistIndex, checklists, routes, activeRouteId, aerodromes };
-  }, [appState, activeChecklist, checklistIndex, checklists, routes, activeRouteId, aerodromes]);
+    stateRef.current = { appState, activeChecklist, checklistIndex, checklists, routes, activeRouteId, aerodromes, listeningMode, isSpeaking, isRecognitionEnabled };
+  }, [appState, activeChecklist, checklistIndex, checklists, routes, activeRouteId, aerodromes, listeningMode, isSpeaking, isRecognitionEnabled]);
 
   // --- Speech Synthesis ---
   const speak = useCallback((text: string, onEnd?: () => void) => {
@@ -184,9 +187,22 @@ export default function App() {
     utterance.lang = 'es-ES';
     utterance.rate = 1.0;
     utterance.pitch = 1.0;
-    utterance.onstart = () => setIsSpeaking(true);
+    utterance.onstart = () => {
+      setIsSpeaking(true);
+      if (stateRef.current.listeningMode === 'speaker' && recognitionRef.current) {
+        try { recognitionRef.current.stop(); } catch (e) {}
+      }
+    };
     utterance.onend = () => {
       setIsSpeaking(false);
+      if (stateRef.current.listeningMode === 'speaker' && stateRef.current.isRecognitionEnabled) {
+        // Restart recognition after speaking if in speaker mode
+        setTimeout(() => {
+          if (stateRef.current.isRecognitionEnabled && !recognitionRef.current && startRecognitionRef.current) {
+            startRecognitionRef.current();
+          }
+        }, 100);
+      }
       if (onEnd) onEnd();
     };
     synthesisRef.current.speak(utterance);
@@ -351,7 +367,11 @@ export default function App() {
   }, [speak, addLog]);
 
   const handleCommand = useCallback((command: string) => {
-    const { appState: currentAppState, activeChecklist: currentActiveChecklist, checklistIndex: currentChecklistIndex } = stateRef.current;
+    const { appState: currentAppState, activeChecklist: currentActiveChecklist, checklistIndex: currentChecklistIndex, listeningMode: currentMode, isSpeaking: currentlySpeaking } = stateRef.current;
+    
+    // Guard for speaker mode: don't process if copilot is speaking
+    if (currentMode === 'speaker' && currentlySpeaking) return;
+
     const cmd = command.toLowerCase().trim();
     addLog(command, 'user');
 
@@ -401,9 +421,21 @@ export default function App() {
       else setMicError(`Error: ${event.error}`);
     };
     recognition.onend = () => {
-      setTimeout(() => {
-        try { recognition.start(); } catch (e) {}
-      }, 300);
+      // Only auto-restart if we are not speaking in speaker mode
+      if (stateRef.current.isRecognitionEnabled) {
+        if (stateRef.current.listeningMode === 'headphones' || !stateRef.current.isSpeaking) {
+          setTimeout(() => {
+            try { 
+              if (stateRef.current.isRecognitionEnabled) {
+                recognition.start(); 
+              }
+            } catch (e) {}
+          }, 300);
+        } else {
+          // If we stopped because of speaking, clear the ref so it can be restarted by onend of synthesis
+          recognitionRef.current = null;
+        }
+      }
     };
     try {
       recognition.start();
@@ -412,6 +444,10 @@ export default function App() {
       setMicError("Fallo al iniciar");
     }
   }, [handleCommand]);
+
+  useEffect(() => {
+    startRecognitionRef.current = startRecognition;
+  }, [startRecognition]);
 
   useEffect(() => {
     if (isRecognitionEnabled) startRecognition();
@@ -1025,6 +1061,8 @@ export default function App() {
                     <li>• <span className="text-white">"Repetir"</span>: Repite lo último que dijo el copiloto.</li>
                     <li>• <span className="text-white">"Ayuda / Opciones"</span>: Escucha los comandos.</li>
                     <li>• <span className="text-red-400">"Cancelar / Parar"</span>: Detiene la acción actual.</li>
+                    <li>• <span className="text-blue-400">Modo Cascos</span>: Escucha continua (incluso si el copiloto habla).</li>
+                    <li>• <span className="text-emerald-400">Modo Altavoz</span>: Escucha inteligente (se pausa mientras el copiloto habla).</li>
                   </ul>
                 </section>
               </div>
@@ -1034,14 +1072,33 @@ export default function App() {
       </AnimatePresence>
 
       {/* Voice Control Button */}
-      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-2">
-        <motion.button
-          whileTap={{ scale: 0.9 }}
-          onClick={toggleRecognition}
-          className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl border-4 border-[#0A0A0A] transition-all ${!isRecognitionEnabled ? 'bg-red-500/20 text-red-400 border-red-500/30' : appState === 'listening' ? 'bg-emerald-500 text-black' : 'bg-[#141414] text-emerald-400'}`}
-        >
-          {!isRecognitionEnabled ? <MicOff className="w-8 h-8" /> : appState === 'listening' ? <div className="flex gap-1">{[1, 2, 3].map(i => <motion.div key={i} animate={{ scaleY: [1, 2, 1] }} transition={{ duration: 0.4, repeat: Infinity, delay: i * 0.1 }} className="w-1 h-4 bg-black rounded-full" />)}</div> : <Mic className="w-8 h-8" />}
-        </motion.button>
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4">
+        <div className="flex items-center gap-3">
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={() => {
+              const newMode = listeningMode === 'headphones' ? 'speaker' : 'headphones';
+              setListeningMode(newMode);
+              speak(`Modo ${newMode === 'headphones' ? 'cascos' : 'altavoz'} activado`);
+            }}
+            className={`w-10 h-10 rounded-full flex items-center justify-center shadow-lg border border-white/10 transition-all ${listeningMode === 'headphones' ? 'bg-blue-500 text-white' : 'bg-[#141414] text-white/40'}`}
+            title={listeningMode === 'headphones' ? "Modo Cascos (Escucha continua)" : "Modo Altavoz (Escucha pausada)"}
+          >
+            {listeningMode === 'headphones' ? <Headphones className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+          </motion.button>
+
+          <motion.button
+            whileTap={{ scale: 0.9 }}
+            onClick={toggleRecognition}
+            className={`w-16 h-16 rounded-full flex items-center justify-center shadow-2xl border-4 border-[#0A0A0A] transition-all ${!isRecognitionEnabled ? 'bg-red-500/20 text-red-400 border-red-500/30' : appState === 'listening' ? 'bg-emerald-500 text-black' : 'bg-[#141414] text-emerald-400'}`}
+          >
+            {!isRecognitionEnabled ? <MicOff className="w-8 h-8" /> : appState === 'listening' ? <div className="flex gap-1">{[1, 2, 3].map(i => <motion.div key={i} animate={{ scaleY: [1, 2, 1] }} transition={{ duration: 0.4, repeat: Infinity, delay: i * 0.1 }} className="w-1 h-4 bg-black rounded-full" />)}</div> : <Mic className="w-8 h-8" />}
+          </motion.button>
+        </div>
+        
+        <div className="bg-black/40 backdrop-blur-sm px-3 py-1 rounded-full border border-white/5 text-[10px] uppercase tracking-widest text-white/40 font-bold">
+          {listeningMode === 'headphones' ? 'Escucha Continua' : 'Escucha Inteligente'}
+        </div>
       </div>
 
       {appState === 'listening' && <div className="fixed inset-0 pointer-events-none border-[8px] border-emerald-500/20 animate-pulse z-50" />}
