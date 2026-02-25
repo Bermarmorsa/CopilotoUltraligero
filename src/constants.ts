@@ -29,12 +29,16 @@ export interface Runway {
   id: string;
   number: string;
   circuit: string;
+  length?: string;
+  slope?: string;
+  material?: string;
 }
 
 export interface Aerodrome {
   id: string;
   code: string;
   name: string;
+  elevation: string;
   runways: Runway[];
   frequencies: string[];
   observations: string;
@@ -129,9 +133,10 @@ export const INITIAL_AERODROMES: Aerodrome[] = [
     id: '1',
     code: 'LECI',
     name: 'Casarrubios',
+    elevation: '2000 ft',
     runways: [
-      { id: 'r1', number: '08', circuit: 'Izquierda' },
-      { id: 'r2', number: '26', circuit: 'Derecha' }
+      { id: 'r1', number: '08', circuit: 'Izquierda', length: '950m', material: 'Asfalto' },
+      { id: 'r2', number: '26', circuit: 'Derecha', length: '950m', material: 'Asfalto' }
     ],
     frequencies: ['123.500'],
     observations: 'Frecuencia auto-información.',
@@ -140,9 +145,10 @@ export const INITIAL_AERODROMES: Aerodrome[] = [
     id: '2',
     code: 'LECU',
     name: 'Cuatro Vientos',
+    elevation: '2267 ft',
     runways: [
-      { id: 'r3', number: '09', circuit: 'Izquierda' },
-      { id: 'r4', number: '27', circuit: 'Derecha' }
+      { id: 'r3', number: '09', circuit: 'Izquierda', length: '1200m', material: 'Asfalto' },
+      { id: 'r4', number: '27', circuit: 'Derecha', length: '1200m', material: 'Asfalto' }
     ],
     frequencies: ['118.700', '121.700'],
     observations: 'Control torre obligatorio.',

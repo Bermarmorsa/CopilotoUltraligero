@@ -57,11 +57,25 @@ function readFrequency(freq: string): string {
   }).join(' ');
 }
 
+function readSlope(slope: string): string {
+  return slope.split('').map(char => {
+    if (char === '-') return 'menos';
+    if (char === '.') return 'punto';
+    if (char === '%') return 'porciento';
+    if (char === ' ') return '';
+    return PHONETIC_ALPHABET[char] || char;
+  }).filter(Boolean).join(' ');
+}
+
 function readRunways(runways: Runway[]): string {
   return runways.map(r => {
     const numSpelled = r.number.split('').map(digit => PHONETIC_ALPHABET[digit] || digit).join(' ');
-    return `pista ${numSpelled} circuito a ${r.circuit.toLowerCase()}`;
-  }).join(', ');
+    let details = `pista ${numSpelled} circuito a ${r.circuit.toLowerCase()}`;
+    if (r.length) details += `, longitud ${r.length}`;
+    if (r.material) details += `, superficie de ${r.material}`;
+    if (r.slope) details += `, inclinación ${readSlope(r.slope)}`;
+    return details;
+  }).join('. ');
 }
 
 export default function App() {
@@ -82,7 +96,14 @@ export default function App() {
       // Migration: convert old 'frequency' string to 'frequencies' array
       return parsed.map((a: any) => ({
         ...a,
-        frequencies: a.frequencies || (a.frequency ? [a.frequency] : [])
+        frequencies: a.frequencies || (a.frequency ? [a.frequency] : []),
+        elevation: a.elevation || '',
+        runways: (a.runways || []).map((r: any) => ({
+          ...r,
+          length: r.length || '',
+          slope: r.slope || '',
+          material: r.material || ''
+        }))
       }));
     } catch (e) {
       return INITIAL_AERODROMES;
@@ -284,7 +305,7 @@ export default function App() {
       const codeSpelled = spellAeronautical(aero.code);
       const runwaysSpelled = readRunways(aero.runways);
       const freqsSpelled = (aero.frequencies || []).map(f => readFrequency(f)).join(' y ');
-      const response = `Aeródromo ${aero.name}, código ${codeSpelled}. ${runwaysSpelled}. Frecuencias ${freqsSpelled}. ${aero.observations}`;
+      const response = `Aeródromo ${aero.name}, código ${codeSpelled}. Elevación ${aero.elevation || 'no especificada'}. ${runwaysSpelled}. Frecuencias ${freqsSpelled}. ${aero.observations}`;
       speak(response);
       addLog(response, 'system');
       return;
@@ -697,14 +718,17 @@ export default function App() {
                       <Radio className="w-4 h-4" />
                       <h2 className="text-xs font-bold uppercase tracking-widest">Aeródromos</h2>
                     </div>
-                    <button onClick={() => { setEditingAerodrome({ id: '', name: '', runways: [], frequency: '', entryPoints: [], circuitDirection: '' }); setIsAddingAerodrome(true); }} className="p-1 hover:bg-white/10 rounded text-amber-400"><Plus className="w-4 h-4" /></button>
+                    <button onClick={() => { setEditingAerodrome({ id: '', code: '', name: '', elevation: '', runways: [{ id: Date.now().toString(), number: '', circuit: '', length: '', slope: '', material: '' }], frequencies: [], observations: '' }); setIsAddingAerodrome(true); }} className="p-1 hover:bg-white/10 rounded text-amber-400"><Plus className="w-4 h-4" /></button>
                   </div>
                   <div className="p-4 space-y-2 flex-1">
                     {aerodromes.map(aero => (
                       <div key={aero.id} className="group flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 hover:border-amber-500/30 transition-all">
                         <div className="flex flex-col">
                           <span className="text-sm font-medium">{aero.name}</span>
-                          <span className="text-[10px] text-white/40">{(aero.frequencies || []).join(', ')} MHz</span>
+                          <div className="flex gap-2">
+                            <span className="text-[10px] text-white/40">{(aero.frequencies || []).join(', ')} MHz</span>
+                            {aero.elevation && <span className="text-[10px] text-amber-400/60">ALT: {aero.elevation}</span>}
+                          </div>
                         </div>
                         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button onClick={() => { setEditingAerodrome(aero); setIsAddingAerodrome(false); }} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-amber-400"><Edit3 className="w-4 h-4" /></button>
@@ -830,9 +854,10 @@ export default function App() {
         {editingAerodrome && (
           <Modal title={isAddingAerodrome ? "Nuevo Aeródromo" : `Editar Aeródromo: ${editingAerodrome.name}`} onClose={() => setEditingAerodrome(null)}>
             <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Código</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingAerodrome.code} onChange={e => setEditingAerodrome({...editingAerodrome, code: e.target.value})} /></div>
-                <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Nombre</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingAerodrome.name} onChange={e => setEditingAerodrome({...editingAerodrome, name: e.target.value})} /></div>
+              <div className="grid grid-cols-3 gap-4">
+                <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Código</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1 text-sm" value={editingAerodrome.code} onChange={e => setEditingAerodrome({...editingAerodrome, code: e.target.value})} /></div>
+                <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Nombre</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1 text-sm" value={editingAerodrome.name} onChange={e => setEditingAerodrome({...editingAerodrome, name: e.target.value})} /></div>
+                <div className="col-span-1"><label className="text-[10px] text-white/40 uppercase">Elevación</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1 text-sm" placeholder="Ej: 2000 ft" value={editingAerodrome.elevation} onChange={e => setEditingAerodrome({...editingAerodrome, elevation: e.target.value})} /></div>
               </div>
 
               <div className="space-y-2">
@@ -857,41 +882,76 @@ export default function App() {
                 <button onClick={() => setEditingAerodrome({ ...editingAerodrome, frequencies: [...(editingAerodrome.frequencies || []), ''] })} className="w-full py-2 border border-dashed border-white/20 rounded-lg text-[10px] text-white/40 hover:text-white hover:border-white/40">+ Añadir Frecuencia</button>
               </div>
               
-              <div className="space-y-2">
-                <label className="text-[10px] text-white/40 uppercase">Pistas y Circuitos</label>
+              <div className="space-y-4">
+                <label className="text-[10px] text-white/40 uppercase font-bold tracking-widest">Pistas y Circuitos</label>
                 {editingAerodrome.runways.map((runway, idx) => (
-                  <div key={runway.id} className="flex gap-2 items-end">
-                    <div className="flex-1">
-                      <label className="text-[8px] text-white/20 uppercase">Pista</label>
-                      <input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs" value={runway.number} onChange={e => {
-                        const newRunways = [...editingAerodrome.runways];
-                        newRunways[idx].number = e.target.value;
-                        setEditingAerodrome({...editingAerodrome, runways: newRunways});
-                      }} />
-                    </div>
-                    <div className="flex-1">
-                      <label className="text-[8px] text-white/20 uppercase">Circuito</label>
-                      <select 
-                        className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs outline-none" 
-                        value={runway.circuit} 
-                        onChange={e => {
+                  <div key={runway.id} className="p-4 bg-white/5 rounded-2xl border border-white/10 space-y-3 relative group/runway">
+                    <button 
+                      onClick={() => {
+                        const newRunways = editingAerodrome.runways.filter((_, i) => i !== idx);
+                        setEditingAerodrome({ ...editingAerodrome, runways: newRunways });
+                      }} 
+                      className="absolute top-2 right-2 text-red-400/40 hover:text-red-400 p-1 transition-colors"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="text-[8px] text-white/20 uppercase">Pista</label>
+                        <input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs" placeholder="Ej: 08" value={runway.number} onChange={e => {
                           const newRunways = [...editingAerodrome.runways];
-                          newRunways[idx].circuit = e.target.value;
+                          newRunways[idx].number = e.target.value;
                           setEditingAerodrome({...editingAerodrome, runways: newRunways});
-                        }}
-                      >
-                        <option value="" className="bg-[#141414]">Seleccionar</option>
-                        <option value="Izquierda" className="bg-[#141414]">Izquierda</option>
-                        <option value="Derecha" className="bg-[#141414]">Derecha</option>
-                      </select>
+                        }} />
+                      </div>
+                      <div>
+                        <label className="text-[8px] text-white/20 uppercase">Circuito</label>
+                        <select 
+                          className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-xs outline-none" 
+                          value={runway.circuit} 
+                          onChange={e => {
+                            const newRunways = [...editingAerodrome.runways];
+                            newRunways[idx].circuit = e.target.value;
+                            setEditingAerodrome({...editingAerodrome, runways: newRunways});
+                          }}
+                        >
+                          <option value="" className="bg-[#141414]">Seleccionar</option>
+                          <option value="Izquierda" className="bg-[#141414]">Izquierda</option>
+                          <option value="Derecha" className="bg-[#141414]">Derecha</option>
+                        </select>
+                      </div>
                     </div>
-                    <button onClick={() => {
-                      const newRunways = editingAerodrome.runways.filter((_, i) => i !== idx);
-                      setEditingAerodrome({ ...editingAerodrome, runways: newRunways });
-                    }} className="text-red-400 p-2"><Trash2 className="w-4 h-4" /></button>
+
+                    <div className="grid grid-cols-3 gap-2">
+                      <div>
+                        <label className="text-[8px] text-white/20 uppercase">Longitud</label>
+                        <input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-[10px]" placeholder="Ej: 900m" value={runway.length} onChange={e => {
+                          const newRunways = [...editingAerodrome.runways];
+                          newRunways[idx].length = e.target.value;
+                          setEditingAerodrome({...editingAerodrome, runways: newRunways});
+                        }} />
+                      </div>
+                      <div>
+                        <label className="text-[8px] text-white/20 uppercase">Superficie</label>
+                        <input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-[10px]" placeholder="Asfalto/Tierra" value={runway.material} onChange={e => {
+                          const newRunways = [...editingAerodrome.runways];
+                          newRunways[idx].material = e.target.value;
+                          setEditingAerodrome({...editingAerodrome, runways: newRunways});
+                        }} />
+                      </div>
+                      <div>
+                        <label className="text-[8px] text-white/20 uppercase">Inclinación</label>
+                        <input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 text-[10px]" placeholder="Ej: 1%" value={runway.slope} onChange={e => {
+                          const newRunways = [...editingAerodrome.runways];
+                          newRunways[idx].slope = e.target.value;
+                          setEditingAerodrome({...editingAerodrome, runways: newRunways});
+                        }} />
+                      </div>
+                    </div>
                   </div>
                 ))}
-                <button onClick={() => setEditingAerodrome({ ...editingAerodrome, runways: [...editingAerodrome.runways, { id: Date.now().toString(), number: '', circuit: '' }] })} className="w-full py-2 border border-dashed border-white/20 rounded-lg text-[10px] text-white/40 hover:text-white hover:border-white/40">+ Añadir Pista</button>
+                <button onClick={() => setEditingAerodrome({ ...editingAerodrome, runways: [...editingAerodrome.runways, { id: Date.now().toString(), number: '', circuit: '', length: '', slope: '', material: '' }] })} className="w-full py-2 border border-dashed border-white/20 rounded-lg text-[10px] text-white/40 hover:text-white hover:border-white/40 transition-all">+ Añadir Pista</button>
               </div>
 
               <div><label className="text-[10px] text-white/40 uppercase">Observaciones</label><textarea className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingAerodrome.observations} onChange={e => setEditingAerodrome({...editingAerodrome, observations: e.target.value})} /></div>
