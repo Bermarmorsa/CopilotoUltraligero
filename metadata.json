@@ -1,0 +1,5 @@
+{
+  "name": "Copiloto - Asistente de Vuelo",
+  "description": "Asistente de voz offline para pilotos de ultraligeros con checklists y datos de vuelo.",
+  "requestFramePermissions": ["microphone"]
+}
