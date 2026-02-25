@@ -273,13 +273,13 @@ export default function App() {
     }
 
     // 4. Flight Plan / Aerodrome Info
-    if (cmd.includes('plan de vuelo') || cmd.includes('waypoint') || cmd.includes('ruta')) {
+    if (cmd.includes('plan de vuelo') || cmd.includes('punto') || cmd.includes('waypoint') || cmd.includes('ruta')) {
       // 4a. Select Flight Plan by Name
       if (cmd.includes('cargar') || cmd.includes('seleccionar') || cmd.includes('activar')) {
         const targetPlan = currentRoutes.find(r => cmd.includes(r.name.toLowerCase()));
         if (targetPlan) {
           setActiveRouteId(targetPlan.id);
-          const response = `Plan de vuelo ${targetPlan.name} cargado. Tiene ${targetPlan.waypoints.length} waypoints.`;
+          const response = `Plan de vuelo ${targetPlan.name} cargado. Tiene ${targetPlan.waypoints.length} puntos.`;
           speak(response);
           addLog(response, 'system');
           return;
@@ -289,8 +289,8 @@ export default function App() {
       // 4b. Check if user is asking for a specific waypoint by name or number
       let targetWp: Waypoint | undefined;
       
-      // Try matching by number (e.g., "waypoint 1")
-      const numMatch = cmd.match(/waypoint\s*(\d+)/i) || cmd.match(/punto\s*(\d+)/i);
+      // Try matching by number (e.g., "punto 1")
+      const numMatch = cmd.match(/punto\s*(\d+)/i) || cmd.match(/waypoint\s*(\d+)/i);
       if (numMatch) {
         const index = parseInt(numMatch[1]) - 1;
         if (index >= 0 && index < currentRoute.waypoints.length) {
@@ -304,7 +304,7 @@ export default function App() {
       }
       
       if (targetWp) {
-        const response = `Waypoint ${targetWp.name}. Rumbo ${targetWp.heading} grados, Altitud ${targetWp.altitude}, Techo ${targetWp.ceiling}. Notas: ${targetWp.notes}`;
+        const response = `Punto ${targetWp.name}. Rumbo ${targetWp.heading} grados, Altitud ${targetWp.altitude}, Techo ${targetWp.ceiling}. Notas: ${targetWp.notes}`;
         speak(response);
         addLog(response, 'system');
       } else {
@@ -1049,8 +1049,8 @@ export default function App() {
                   <ul className="space-y-2 text-sm">
                     <li>• <span className="text-blue-400">"Cargar plan [Nombre]"</span>: Cambia el plan activo.</li>
                     <li>• <span className="text-blue-400">"Plan de vuelo / Ruta"</span>: Resumen del plan activo.</li>
-                    <li>• <span className="text-blue-400">"Detalles de waypoint [Número]"</span>: Info por orden.</li>
-                    <li>• <span className="text-blue-400">"Detalles de [Nombre Waypoint]"</span>: Info específica.</li>
+                    <li>• <span className="text-blue-400">"Detalles de punto [Número]"</span>: Info por orden.</li>
+                    <li>• <span className="text-blue-400">"Detalles de [Nombre Punto]"</span>: Info específica.</li>
                     <li>• <span className="text-amber-400">"Aeródromo / Pistas"</span>: Datos del aeródromo.</li>
                   </ul>
                 </section>

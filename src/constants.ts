@@ -9,7 +9,7 @@ export interface Checklist {
   items: ChecklistItem[];
 }
 
-export interface Waypoint {
+export interface PuntoRuta {
   id: string;
   name: string;
   lugar: string;
@@ -22,7 +22,7 @@ export interface Waypoint {
 export interface Route {
   id: string;
   name: string;
-  waypoints: Waypoint[];
+  puntosRuta: PuntoRuta[];
 }
 
 export interface Runway {
@@ -106,7 +106,7 @@ export const INITIAL_FLIGHT_PLANS: Route[] = [
   {
     id: '1',
     name: 'Taragudo a Sigüenza',
-    waypoints: [
+    puntosRuta: [
       {
         id: '1',
         name: 'Punto de Salida',
