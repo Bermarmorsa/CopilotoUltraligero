@@ -23,10 +23,11 @@ import {
   Plus,
   Trash2,
   X,
-  Save
+  Save,
+  Square
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { CHECKLISTS as INITIAL_CHECKLISTS, INITIAL_FLIGHT_PLANS, INITIAL_AERODROMES, Checklist, ChecklistItem, Waypoint, Aerodrome, Route, Runway } from './constants';
+import { CHECKLISTS as INITIAL_CHECKLISTS, INITIAL_FLIGHT_PLANS, INITIAL_AERODROMES, Checklist, ChecklistItem, PuntoRuta, Aerodrome, Route, Runway } from './constants';
 
 // --- Types ---
 type AppState = 'idle' | 'listening' | 'checklist' | 'info';
@@ -76,6 +77,22 @@ function normalizeUnitsForSpeech(text: string): string {
     .trim();
 }
 
+const spanishNumberToDigit = (text: string): number | null => {
+  const numbers: Record<string, number> = {
+    'uno': 1, 'una': 1, 'un': 1,
+    'dos': 2,
+    'tres': 3,
+    'cuatro': 4,
+    'cinco': 5,
+    'seis': 6,
+    'siete': 7,
+    'ocho': 8,
+    'nueve': 9,
+    'diez': 10
+  };
+  return numbers[text.toLowerCase()] || null;
+};
+
 function readRunways(runways: Runway[]): string {
   return runways.map(r => {
     const numSpelled = r.number.split('').map(digit => PHONETIC_ALPHABET[digit] || digit).join(' ');
@@ -96,7 +113,17 @@ export default function App() {
   });
   const [routes, setRoutes] = useState<Route[]>(() => {
     const saved = localStorage.getItem('copiloto_routes');
-    return saved ? JSON.parse(saved) : INITIAL_FLIGHT_PLANS;
+    if (!saved) return INITIAL_FLIGHT_PLANS;
+    try {
+      const parsed = JSON.parse(saved);
+      // Migration: convert old 'waypoints' to 'puntosRuta'
+      return parsed.map((r: any) => ({
+        ...r,
+        puntosRuta: r.puntosRuta || r.waypoints || []
+      }));
+    } catch (e) {
+      return INITIAL_FLIGHT_PLANS;
+    }
   });
   const [aerodromes, setAerodromes] = useState<Aerodrome[]>(() => {
     const saved = localStorage.getItem('copiloto_aerodromes');
@@ -155,10 +182,10 @@ export default function App() {
 
   // --- Editing State ---
   const [editingChecklist, setEditingChecklist] = useState<Checklist | null>(null);
-  const [editingWaypoint, setEditingWaypoint] = useState<Waypoint | null>(null);
+  const [editingPuntoRuta, setEditingPuntoRuta] = useState<PuntoRuta | null>(null);
   const [editingAerodrome, setEditingAerodrome] = useState<Aerodrome | null>(null);
   const [editingRoute, setEditingRoute] = useState<Route | null>(null);
-  const [isAddingWaypoint, setIsAddingWaypoint] = useState(false);
+  const [isAddingPuntoRuta, setIsAddingPuntoRuta] = useState(false);
   const [isAddingChecklist, setIsAddingChecklist] = useState(false);
   const [isAddingAerodrome, setIsAddingAerodrome] = useState(false);
   const [isAddingRoute, setIsAddingRoute] = useState(false);
@@ -170,7 +197,7 @@ export default function App() {
   const lastSpokenRef = useRef<string>("");
   const logsEndRef = useRef<HTMLDivElement>(null);
 
-  const activeRoute = routes.find(r => r.id === activeRouteId) || routes[0];
+  const activeRoute = routes.find(r => r.id === activeRouteId) || routes[0] || { id: 'none', name: 'Sin Ruta', puntosRuta: [] };
 
   // --- Refs for state access in callbacks ---
   const stateRef = useRef({ appState, activeChecklist, checklistIndex, checklists, routes, activeRouteId, aerodromes, listeningMode, isSpeaking, isRecognitionEnabled });
@@ -208,6 +235,13 @@ export default function App() {
     synthesisRef.current.speak(utterance);
   }, []);
 
+  const stopSpeaking = useCallback(() => {
+    if (synthesisRef.current) {
+      synthesisRef.current.cancel();
+      setIsSpeaking(false);
+    }
+  }, []);
+
   const addLog = useCallback((text: string, type: 'user' | 'system') => {
     setLogs(prev => [
       ...prev,
@@ -218,7 +252,7 @@ export default function App() {
   // --- Command Logic ---
   const processActualCommand = useCallback((cmd: string, currentAppState: AppState, currentActiveChecklist: Checklist | null, currentChecklistIndex: number) => {
     const { checklists: currentChecklists, routes: currentRoutes, activeRouteId: currentActiveRouteId, aerodromes: currentAerodromes } = stateRef.current;
-    const currentRoute = currentRoutes.find(r => r.id === currentActiveRouteId) || currentRoutes[0];
+    const currentRoute = currentRoutes.find(r => r.id === currentActiveRouteId) || currentRoutes[0] || { id: 'none', name: 'Sin Ruta', puntosRuta: [] };
 
     // 2. Checklist Commands
     if (cmd.includes('leer checklist') || cmd.includes('checklist')) {
@@ -273,42 +307,47 @@ export default function App() {
     }
 
     // 4. Flight Plan / Aerodrome Info
-    if (cmd.includes('plan de vuelo') || cmd.includes('punto') || cmd.includes('waypoint') || cmd.includes('ruta')) {
+    if (cmd.includes('plan de vuelo') || cmd.includes('punto') || cmd.includes('ruta') || cmd.includes('punto de ruta')|| cmd.includes('punto ruta')) {
       // 4a. Select Flight Plan by Name
       if (cmd.includes('cargar') || cmd.includes('seleccionar') || cmd.includes('activar')) {
         const targetPlan = currentRoutes.find(r => cmd.includes(r.name.toLowerCase()));
         if (targetPlan) {
           setActiveRouteId(targetPlan.id);
-          const response = `Plan de vuelo ${targetPlan.name} cargado. Tiene ${targetPlan.waypoints.length} puntos.`;
+          const response = `Plan de vuelo ${targetPlan.name} cargado. Tiene ${(targetPlan.puntosRuta || []).length} puntos de ruta.`;
           speak(response);
           addLog(response, 'system');
           return;
         }
       }
 
-      // 4b. Check if user is asking for a specific waypoint by name or number
-      let targetWp: Waypoint | undefined;
+      // 4b. Check if user is asking for a specific punto de ruta by name or number
+      let targetPunto: PuntoRuta | undefined;
       
-      // Try matching by number (e.g., "punto 1")
-      const numMatch = cmd.match(/punto\s*(\d+)/i) || cmd.match(/waypoint\s*(\d+)/i);
+      // Try matching by number (e.g., "punto 1" or "punto uno")
+      const numMatch = cmd.match(/punto\s*(?:de\s*ruta\s*)?(\d+|uno|una|un|dos|tres|cuatro|cinco|seis|siete|ocho|nueve|diez)/i);
       if (numMatch) {
-        const index = parseInt(numMatch[1]) - 1;
-        if (index >= 0 && index < currentRoute.waypoints.length) {
-          targetWp = currentRoute.waypoints[index];
+        const val = numMatch[1];
+        const index = isNaN(parseInt(val)) ? (spanishNumberToDigit(val) || 0) - 1 : parseInt(val) - 1;
+        if (index >= 0 && index < (currentRoute.puntosRuta || []).length) {
+          targetPunto = currentRoute.puntosRuta[index];
         }
       }
 
       // Try matching by name if not found by number
-      if (!targetWp) {
-        targetWp = currentRoute.waypoints.find(wp => cmd.includes(wp.name.toLowerCase()));
+      if (!targetPunto) {
+        // Remove "punto de ruta" prefix from command if present to match name better
+        const cleanCmd = cmd.replace(/punto\s*(?:de\s*ruta\s*)?/i, '').trim();
+        targetPunto = (currentRoute.puntosRuta || []).find(wp => 
+          cleanCmd.includes(wp.name.toLowerCase()) || cmd.includes(wp.name.toLowerCase())
+        );
       }
       
-      if (targetWp) {
-        const response = `Punto ${targetWp.name}. Rumbo ${targetWp.heading} grados, Altitud ${targetWp.altitude}, Techo ${targetWp.ceiling}. Notas: ${targetWp.notes}`;
+      if (targetPunto) {
+        const response = `Punto de ruta ${targetPunto.name}. Rumbo ${targetPunto.heading} grados, Altitud ${targetPunto.altitude}, Techo ${targetPunto.ceiling}. Notas: ${targetPunto.notes}`;
         speak(response);
         addLog(response, 'system');
       } else {
-        const info = currentRoute.waypoints.map((wp, i) => `${i + 1}: ${wp.name}`).join(', ');
+        const info = (currentRoute.puntosRuta || []).map((wp, i) => `${i + 1}: ${wp.name}`).join(', ');
         speak(`El plan ${currentRoute.name} tiene: ${info}. ¿De cuál quieres detalles?`);
         addLog(`Plan ${currentRoute.name}: ${info}`, 'system');
       }
@@ -345,12 +384,17 @@ export default function App() {
       return;
     }
 
-    // 6. Cancel
-    if (cmd.includes('cancelar') || cmd.includes('parar')) {
-      speak('Operación cancelada');
-      setAppState('idle');
-      setActiveChecklist(null);
-      setChecklistIndex(-1);
+    // 6. Cancel / Stop
+    if (cmd.includes('cancelar') || cmd.includes('parar') || cmd.includes('copiloto parar') || cmd.includes('silencio')) {
+      stopSpeaking();
+      if (cmd.includes('cancelar')) {
+        speak('Operación cancelada');
+        setAppState('idle');
+        setActiveChecklist(null);
+        setChecklistIndex(-1);
+      } else {
+        addLog('Lectura detenida', 'system');
+      }
       return;
     }
 
@@ -493,18 +537,18 @@ export default function App() {
     setEditingChecklist(null);
   };
 
-  const saveWaypoint = (wp: Waypoint) => {
-    if (isAddingWaypoint) {
+  const savePuntoRuta = (wp: PuntoRuta) => {
+    if (isAddingPuntoRuta) {
       const newWp = { ...wp, id: Math.random().toString(36).substr(2, 9) };
-      setRoutes(prev => prev.map(r => r.id === activeRouteId ? { ...r, waypoints: [...r.waypoints, newWp] } : r));
-      setIsAddingWaypoint(false);
+      setRoutes(prev => prev.map(r => r.id === activeRouteId ? { ...r, puntosRuta: [...r.puntosRuta, newWp] } : r));
+      setIsAddingPuntoRuta(false);
     } else {
       setRoutes(prev => prev.map(r => r.id === activeRouteId ? {
         ...r,
-        waypoints: r.waypoints.map(item => item.id === wp.id ? wp : item)
+        puntosRuta: r.puntosRuta.map(item => item.id === wp.id ? wp : item)
       } : r));
     }
-    setEditingWaypoint(null);
+    setEditingPuntoRuta(null);
   };
 
   const saveAerodrome = (aero: Aerodrome) => {
@@ -518,11 +562,26 @@ export default function App() {
     setEditingAerodrome(null);
   };
 
-  const deleteWaypoint = (id: string) => {
+  const deletePuntoRuta = (id: string) => {
     setRoutes(prev => prev.map(r => r.id === activeRouteId ? {
       ...r,
-      waypoints: r.waypoints.filter(wp => wp.id !== id)
+      puntosRuta: r.puntosRuta.filter(wp => wp.id !== id)
     } : r));
+  };
+
+  const movePuntoRuta = (id: string, direction: 'up' | 'down') => {
+    setRoutes(prev => prev.map(r => {
+      if (r.id !== activeRouteId) return r;
+      const idx = r.puntosRuta.findIndex(wp => wp.id === id);
+      if (idx === -1) return r;
+      if (direction === 'up' && idx === 0) return r;
+      if (direction === 'down' && idx === r.puntosRuta.length - 1) return r;
+
+      const newPuntos = [...r.puntosRuta];
+      const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+      [newPuntos[idx], newPuntos[targetIdx]] = [newPuntos[targetIdx], newPuntos[idx]];
+      return { ...r, puntosRuta: newPuntos };
+    }));
   };
 
   const deleteRoute = (id: string) => {
@@ -554,7 +613,7 @@ export default function App() {
       const newRoute = { 
         ...routeData, 
         id: Math.random().toString(36).substr(2, 9), 
-        waypoints: routeData.waypoints || [] 
+        puntosRuta: routeData.puntosRuta || [] 
       };
       setRoutes(prev => [...(prev || []), newRoute]);
       setActiveRouteId(newRoute.id);
@@ -669,7 +728,7 @@ export default function App() {
                       <MapPin className="w-4 h-4" />
                       <h2 className="text-xs font-bold uppercase tracking-widest">Planes de Vuelo</h2>
                     </div>
-                    <button onClick={() => { setEditingRoute({ id: '', name: '', waypoints: [] }); setIsAddingRoute(true); }} className="p-1 hover:bg-white/10 rounded text-blue-400"><Plus className="w-4 h-4" /></button>
+                    <button onClick={() => { setEditingRoute({ id: '', name: '', puntosRuta: [] }); setIsAddingRoute(true); }} className="p-1 hover:bg-white/10 rounded text-blue-400"><Plus className="w-4 h-4" /></button>
                   </div>
                   
                   <div className="p-4 space-y-2 max-h-48 overflow-y-auto border-b border-white/10">
@@ -681,7 +740,7 @@ export default function App() {
                       >
                         <div className="flex flex-col">
                           <span className={`text-xs font-bold ${activeRouteId === r.id ? 'text-blue-400' : 'text-white/70'}`}>{r.name}</span>
-                          <span className="text-[8px] text-white/30 uppercase">{r.waypoints.length} puntos</span>
+                          <span className="text-[8px] text-white/30 uppercase">{(r.puntosRuta || []).length} puntos</span>
                         </div>
                         <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                           <button 
@@ -723,16 +782,16 @@ export default function App() {
                   <div className="p-4 bg-blue-500/5 flex-1 flex flex-col min-h-0">
                     <div className="flex justify-between items-center mb-4">
                       <div className="flex flex-col">
-                        <span className="text-[10px] text-white/40 uppercase">Waypoints de:</span>
+                        <span className="text-[10px] text-white/40 uppercase">Puntos de ruta de:</span>
                         <span className="text-xs font-bold text-blue-400 uppercase tracking-tighter">{activeRoute.name}</span>
                       </div>
-                      <button onClick={() => { setEditingWaypoint({ id: '', name: '', lugar: '', heading: '', altitude: '', ceiling: '', notes: '' }); setIsAddingWaypoint(true); }} className="p-2 bg-blue-500/20 hover:bg-blue-500/40 rounded-lg text-blue-400 transition-colors">
+                      <button onClick={() => { setEditingPuntoRuta({ id: '', name: '', lugar: '', heading: '', altitude: '', ceiling: '', notes: '' }); setIsAddingPuntoRuta(true); }} className="p-2 bg-blue-500/20 hover:bg-blue-500/40 rounded-lg text-blue-400 transition-colors">
                         <Plus className="w-4 h-4" />
                       </button>
                     </div>
                     
                     <div className="space-y-2 overflow-y-auto flex-1 pr-1">
-                      {activeRoute.waypoints.map((wp, idx) => (
+                      {(activeRoute.puntosRuta || []).map((wp, idx) => (
                         <div key={wp.id} className="group flex items-center justify-between p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/30 transition-all">
                           <div className="flex items-center gap-3">
                             <span className="text-[10px] font-bold text-blue-400/50 w-4">{idx + 1}</span>
@@ -742,15 +801,31 @@ export default function App() {
                             </div>
                           </div>
                           <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => { setEditingWaypoint(wp); setIsAddingWaypoint(false); }} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-blue-400"><Edit3 className="w-4 h-4" /></button>
-                            <button onClick={() => deleteWaypoint(wp.id)} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                            <div className="flex flex-col gap-1 mr-2">
+                              <button 
+                                disabled={idx === 0}
+                                onClick={() => movePuntoRuta(wp.id, 'up')}
+                                className="p-1 hover:bg-white/10 rounded disabled:opacity-20 text-white/40 hover:text-blue-400"
+                              >
+                                <ChevronUp className="w-3 h-3" />
+                              </button>
+                              <button 
+                                disabled={idx === (activeRoute.puntosRuta || []).length - 1}
+                                onClick={() => movePuntoRuta(wp.id, 'down')}
+                                className="p-1 hover:bg-white/10 rounded disabled:opacity-20 text-white/40 hover:text-blue-400"
+                              >
+                                <ChevronDown className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <button onClick={() => { setEditingPuntoRuta(wp); setIsAddingPuntoRuta(false); }} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-blue-400"><Edit3 className="w-4 h-4" /></button>
+                            <button onClick={() => deletePuntoRuta(wp.id)} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
                           </div>
                         </div>
                       ))}
-                      {activeRoute.waypoints.length === 0 && (
+                      {(activeRoute.puntosRuta || []).length === 0 && (
                         <div className="h-full flex flex-col items-center justify-center text-white/20 py-8">
                           <MapPin className="w-8 h-8 mb-2 opacity-20" />
-                          <p className="text-[10px] uppercase tracking-widest">Sin waypoints</p>
+                          <p className="text-[10px] uppercase tracking-widest">Sin puntos de ruta</p>
                         </div>
                       )}
                     </div>
@@ -883,16 +958,16 @@ export default function App() {
           </Modal>
         )}
 
-        {editingWaypoint && (
-          <Modal title={isAddingWaypoint ? "Añadir Waypoint" : "Editar Waypoint"} onClose={() => setEditingWaypoint(null)}>
+        {editingPuntoRuta && (
+          <Modal title={isAddingPuntoRuta ? "Añadir Punto de Ruta" : "Editar Punto de Ruta"} onClose={() => setEditingPuntoRuta(null)}>
             <div className="grid grid-cols-2 gap-4">
-              <div className="col-span-2"><label className="text-[10px] text-white/40 uppercase">Nombre</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingWaypoint.name} onChange={e => setEditingWaypoint({...editingWaypoint, name: e.target.value})} /></div>
-              <div className="col-span-2"><label className="text-[10px] text-white/40 uppercase">Lugar</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingWaypoint.lugar} onChange={e => setEditingWaypoint({...editingWaypoint, lugar: e.target.value})} /></div>
-              <div><label className="text-[10px] text-white/40 uppercase">Rumbo</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingWaypoint.heading} onChange={e => setEditingWaypoint({...editingWaypoint, heading: e.target.value})} /></div>
-              <div><label className="text-[10px] text-white/40 uppercase">Altitud</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingWaypoint.altitude} onChange={e => setEditingWaypoint({...editingWaypoint, altitude: e.target.value})} /></div>
-              <div><label className="text-[10px] text-white/40 uppercase">Techo</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingWaypoint.ceiling} onChange={e => setEditingWaypoint({...editingWaypoint, ceiling: e.target.value})} /></div>
-              <div className="col-span-2"><label className="text-[10px] text-white/40 uppercase">Notas</label><textarea className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingWaypoint.notes} onChange={e => setEditingWaypoint({...editingWaypoint, notes: e.target.value})} /></div>
-              <button onClick={() => saveWaypoint(editingWaypoint)} className="col-span-2 py-3 bg-blue-500 text-white font-bold rounded-xl flex items-center justify-center gap-2"><Save className="w-4 h-4" /> {isAddingWaypoint ? 'Añadir' : 'Guardar'}</button>
+              <div className="col-span-2"><label className="text-[10px] text-white/40 uppercase">Nombre</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingPuntoRuta.name} onChange={e => setEditingPuntoRuta({...editingPuntoRuta, name: e.target.value})} /></div>
+              <div className="col-span-2"><label className="text-[10px] text-white/40 uppercase">Lugar</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingPuntoRuta.lugar} onChange={e => setEditingPuntoRuta({...editingPuntoRuta, lugar: e.target.value})} /></div>
+              <div><label className="text-[10px] text-white/40 uppercase">Rumbo</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingPuntoRuta.heading} onChange={e => setEditingPuntoRuta({...editingPuntoRuta, heading: e.target.value})} /></div>
+              <div><label className="text-[10px] text-white/40 uppercase">Altitud</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingPuntoRuta.altitude} onChange={e => setEditingPuntoRuta({...editingPuntoRuta, altitude: e.target.value})} /></div>
+              <div><label className="text-[10px] text-white/40 uppercase">Techo</label><input className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingPuntoRuta.ceiling} onChange={e => setEditingPuntoRuta({...editingPuntoRuta, ceiling: e.target.value})} /></div>
+              <div className="col-span-2"><label className="text-[10px] text-white/40 uppercase">Notas</label><textarea className="w-full bg-white/5 border border-white/10 rounded-lg p-2 mt-1" value={editingPuntoRuta.notes} onChange={e => setEditingPuntoRuta({...editingPuntoRuta, notes: e.target.value})} /></div>
+              <button onClick={() => savePuntoRuta(editingPuntoRuta)} className="col-span-2 py-3 bg-blue-500 text-white font-bold rounded-xl flex items-center justify-center gap-2"><Save className="w-4 h-4" /> {isAddingPuntoRuta ? 'Añadir' : 'Guardar'}</button>
             </div>
           </Modal>
         )}
@@ -1074,6 +1149,19 @@ export default function App() {
       {/* Voice Control Button */}
       <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-20 flex flex-col items-center gap-4">
         <div className="flex items-center gap-3">
+          {isSpeaking && (
+            <motion.button
+              initial={{ scale: 0, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0, opacity: 0 }}
+              whileTap={{ scale: 0.9 }}
+              onClick={stopSpeaking}
+              className="w-10 h-10 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg border border-white/10"
+              title="Parar de hablar"
+            >
+              <Square className="w-4 h-4 fill-current" />
+            </motion.button>
+          )}
           <motion.button
             whileTap={{ scale: 0.9 }}
             onClick={() => {
