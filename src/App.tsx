@@ -24,9 +24,12 @@ import {
   Trash2,
   X,
   Save,
-  Square
+  Square,
+  FileUp,
+  Download
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import Papa from 'papaparse';
 import { CHECKLISTS as INITIAL_CHECKLISTS, INITIAL_FLIGHT_PLANS, INITIAL_AERODROMES, Checklist, ChecklistItem, PuntoRuta, Aerodrome, Route, Runway } from './constants';
 
 // --- Types ---
@@ -104,6 +107,12 @@ function readRunways(runways: Runway[]): string {
     return details;
   }).join('. ');
 }
+
+const TEMPLATES = {
+  checklists: "nombre_checklist,item_text\nPrevuelo,Documentación del avión a bordo\nPrevuelo,Inspección exterior general",
+  routes: "nombre_plan,nombre_punto,lugar,rumbo,altitud,techo,notas\nTaragudo a Sigüenza,Punto de Salida,Taragudo,090,2000 ft,3500 ft,Salida por el sector Este",
+  aerodromes: "codigo,nombre,elevacion,frecuencias,observaciones,pista_numero,pista_circuito,pista_longitud,pista_ancho,pista_pendiente,pista_material\nLECI,Casarrubios,2000 ft,123.500,Frecuencia auto-información,08,Izquierda,950m,25m,,Asfalto"
+};
 
 export default function App() {
   // --- Data State ---
@@ -190,6 +199,7 @@ export default function App() {
   const [isAddingAerodrome, setIsAddingAerodrome] = useState(false);
   const [isAddingRoute, setIsAddingRoute] = useState(false);
   const [showHelp, setShowHelp] = useState(false);
+  const [showImport, setShowImport] = useState(false);
 
   const recognitionRef = useRef<any>(null);
   const startRecognitionRef = useRef<any>(null);
@@ -608,6 +618,81 @@ export default function App() {
     });
   };
 
+  const handleImportCSV = (type: 'checklists' | 'routes' | 'aerodromes', data: any[]) => {
+    if (type === 'checklists') {
+      const newChecklists: Record<string, Checklist> = { ...checklists };
+      data.forEach(row => {
+        const name = row.nombre_checklist || row.name;
+        const itemText = row.item_text || row.item;
+        if (!name || !itemText) return;
+        
+        const id = name.toLowerCase().replace(/\s+/g, '_');
+        if (!newChecklists[id]) {
+          newChecklists[id] = { id, name, items: [] };
+        }
+        newChecklists[id].items.push({ id: Math.random().toString(36).substr(2, 9), text: itemText });
+      });
+      setChecklists(newChecklists);
+    } else if (type === 'routes') {
+      const newRoutes = [...routes];
+      data.forEach(row => {
+        const routeName = row.nombre_plan || row.route_name;
+        if (!routeName) return;
+
+        let route = newRoutes.find(r => r.name === routeName);
+        if (!route) {
+          route = { id: Math.random().toString(36).substr(2, 9), name: routeName, puntosRuta: [] };
+          newRoutes.push(route);
+        }
+
+        route.puntosRuta.push({
+          id: Math.random().toString(36).substr(2, 9),
+          name: row.nombre_punto || row.name || '',
+          lugar: row.lugar || '',
+          heading: row.rumbo || row.heading || '',
+          altitude: row.altitud || row.altitude || '',
+          ceiling: row.techo || row.ceiling || '',
+          notes: row.notas || row.notes || ''
+        });
+      });
+      setRoutes(newRoutes);
+    } else if (type === 'aerodromes') {
+      const newAerodromes = [...aerodromes];
+      data.forEach(row => {
+        const code = row.codigo || row.code;
+        if (!code) return;
+
+        let aero = newAerodromes.find(a => a.code === code);
+        if (!aero) {
+          aero = {
+            id: Math.random().toString(36).substr(2, 9),
+            code,
+            name: row.nombre || row.name || '',
+            elevation: row.elevacion || row.elevation || '',
+            runways: [],
+            frequencies: (row.frecuencias || row.frequencies || '').toString().split(';').map((f: string) => f.trim()).filter(Boolean),
+            observations: row.observaciones || row.observations || ''
+          };
+          newAerodromes.push(aero);
+        }
+
+        if (row.pista_numero || row.runway_number) {
+          aero.runways.push({
+            id: Math.random().toString(36).substr(2, 9),
+            number: row.pista_numero || row.runway_number || '',
+            circuit: row.pista_circuito || row.runway_circuit || '',
+            length: row.pista_longitud || row.runway_length || '',
+            width: row.pista_ancho || row.runway_width || '',
+            slope: row.pista_pendiente || row.runway_slope || '',
+            material: row.pista_material || row.runway_material || ''
+          });
+        }
+      });
+      setAerodromes(newAerodromes);
+    }
+    addLog(`Importación de ${type} completada`, 'system');
+  };
+
   const saveRoute = (routeData: Route) => {
     if (isAddingRoute) {
       const newRoute = { 
@@ -642,6 +727,13 @@ export default function App() {
         </div>
         
         <div className="flex items-center gap-4">
+          <button 
+            onClick={() => setShowImport(true)}
+            className="p-2 hover:bg-white/10 rounded-full text-white/40 hover:text-white transition-colors"
+            title="Importar Datos CSV"
+          >
+            <FileUp className="w-5 h-5" />
+          </button>
           <button 
             onClick={() => setShowHelp(true)}
             className="p-2 hover:bg-white/10 rounded-full text-white/40 hover:text-white transition-colors"
@@ -1144,6 +1236,13 @@ export default function App() {
             </div>
           </Modal>
         )}
+
+        {showImport && (
+          <ImportModal 
+            onClose={() => setShowImport(false)} 
+            onImport={handleImportCSV} 
+          />
+        )}
       </AnimatePresence>
 
       {/* Voice Control Button */}
@@ -1191,6 +1290,103 @@ export default function App() {
 
       {appState === 'listening' && <div className="fixed inset-0 pointer-events-none border-[8px] border-emerald-500/20 animate-pulse z-50" />}
     </div>
+  );
+}
+
+function ImportModal({ onClose, onImport }: { onClose: () => void, onImport: (type: 'checklists' | 'routes' | 'aerodromes', data: any[]) => void }) {
+  const [importType, setImportType] = useState<'checklists' | 'routes' | 'aerodromes'>('checklists');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      complete: (results) => {
+        onImport(importType, results.data);
+        onClose();
+      },
+      error: (error) => {
+        alert("Error al parsear el CSV: " + error.message);
+      }
+    });
+  };
+
+  const downloadTemplate = () => {
+    const blob = new Blob([TEMPLATES[importType]], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `template_${importType}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <Modal title="Importar Datos CSV" onClose={onClose}>
+      <div className="space-y-6">
+        <div className="flex gap-2 p-1 bg-white/5 rounded-xl border border-white/10">
+          {(['checklists', 'routes', 'aerodromes'] as const).map(type => (
+            <button
+              key={type}
+              onClick={() => setImportType(type)}
+              className={`flex-1 py-2 text-[10px] uppercase font-bold rounded-lg transition-all ${importType === type ? 'bg-emerald-500 text-black' : 'text-white/40 hover:bg-white/5'}`}
+            >
+              {type === 'checklists' ? 'Checklists' : type === 'routes' ? 'Planes' : 'Aeródromos'}
+            </button>
+          ))}
+        </div>
+
+        <div className="space-y-4">
+          <div className="p-4 bg-white/5 rounded-2xl border border-white/5 space-y-3">
+            <h3 className="text-xs font-bold text-white/70 uppercase">1. Descargar Plantilla</h3>
+            <p className="text-[10px] text-white/40 leading-relaxed">
+              Usa nuestra plantilla CSV para asegurar que los datos se carguen correctamente.
+            </p>
+            <button 
+              onClick={downloadTemplate}
+              className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl flex items-center justify-center gap-2 text-xs font-bold transition-all"
+            >
+              <Download className="w-4 h-4" />
+              Descargar Template
+            </button>
+          </div>
+
+          <div className="p-4 bg-emerald-500/5 rounded-2xl border border-emerald-500/20 space-y-3">
+            <h3 className="text-xs font-bold text-emerald-400 uppercase">2. Subir Archivo</h3>
+            <p className="text-[10px] text-white/40 leading-relaxed">
+              Selecciona el archivo CSV completado desde tu dispositivo.
+            </p>
+            <input 
+              type="file" 
+              accept=".csv" 
+              className="hidden" 
+              ref={fileInputRef}
+              onChange={handleFileChange}
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              className="w-full py-3 bg-emerald-500 text-black rounded-xl flex items-center justify-center gap-2 text-xs font-bold hover:bg-emerald-400 transition-all"
+            >
+              <FileUp className="w-4 h-4" />
+              Seleccionar Archivo
+            </button>
+          </div>
+        </div>
+
+        <div className="p-4 bg-amber-500/5 rounded-2xl border border-amber-500/20">
+          <div className="flex gap-2 text-amber-400 mb-2">
+            <AlertTriangle className="w-4 h-4" />
+            <span className="text-[10px] font-bold uppercase">Importante</span>
+          </div>
+          <p className="text-[10px] text-white/40 leading-relaxed">
+            La importación añadirá los nuevos datos a los existentes. Si el nombre del plan o el código del aeródromo ya existe, se añadirán los puntos o pistas a ese registro.
+          </p>
+        </div>
+      </div>
+    </Modal>
   );
 }
 
